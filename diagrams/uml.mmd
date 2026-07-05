@@ -1,15 +1,53 @@
 classDiagram
-    %% Replace the placeholders below with your actual classes, attributes, methods, and relationships.
-    %% Keep this file updated so it matches your final implementation.
+    %% PawPal+ class diagram
+    %% Data flows Owner -> Pet(s) -> Task(s); Scheduler reads the Owner to build a daily plan.
 
-    class ClassName {
-        +type attribute
-        +method() returnType
+    class Owner {
+        +str name
+        +list~Pet~ pets
+        +str day_start
+        +int available_minutes
+        +list~str~ priorities
+        +add_pet(pet) void
+        +edit_pet(name, changes) void
+        +remove_pet(name) void
+        +get_all_tasks() list~Task~
     }
 
-    class AnotherClass {
-        +type attribute
-        +method() returnType
+    class Pet {
+        +str name
+        +str species
+        +str owner_name
+        +list~Task~ tasks
+        +add_task(task) void
+        +edit_task(name, changes) void
+        +remove_task(name) void
+        +get_tasks() list~Task~
     }
 
-    ClassName --> AnotherClass : relationship
+    class Task {
+        +str name
+        +int duration_minutes
+        +str priority
+        +str recurrence
+        +str day_of_week
+        +str fixed_time
+        +priority_rank() int
+        +is_due_today(day) bool
+        +__str__() str
+    }
+
+    class Scheduler {
+        +Owner owner
+        +generate_schedule(day) dict
+        +sort_tasks(tasks) list~Task~
+        +filter_tasks(tasks, budget) list~Task~
+        +detect_conflicts(tasks) list
+        +expand_recurring(day) list~Task~
+        +assign_times(tasks, start) list
+        +format_plan(schedule) str
+    }
+
+    Owner "1" *-- "many" Pet : has
+    Pet "1" *-- "many" Task : has
+    Scheduler "1" --> "1" Owner : reads

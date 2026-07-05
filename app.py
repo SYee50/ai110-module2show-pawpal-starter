@@ -85,47 +85,111 @@ else:
     with st.form("add_task_form", clear_on_submit=True):
         target_pet_name = st.selectbox("For which pet?", [p.name for p in owner.pets])
         description = st.text_input("Task description", value="Morning walk")
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             duration = st.number_input("Duration (minutes)", min_value=1, max_value=240, value=20)
         with col2:
             frequency = st.selectbox("Frequency", list(FREQUENCIES), index=list(FREQUENCIES).index("daily"))
+        with col3:
+            # Preferred time drives sorting and conflict detection in Scheduler.
+            preferred_time = st.text_input("Preferred time (HH:MM, optional)", value="")
         if st.form_submit_button("Add task"):
             pet = owner.find_pet(target_pet_name)
-            pet.add_task(Task(description, int(duration), frequency=frequency))
+            time_value = preferred_time.strip() or None
+            pet.add_task(
+                Task(description, int(duration), frequency=frequency, time=time_value)
+            )
             st.success(f"Added '{description}' to {pet.name}.")
 
 st.divider()
 
-# --- Current pets & tasks (read straight from the persisted owner) ----------
+# --- Current pets & tasks (sorted & filtered via the Scheduler) -------------
 st.subheader("Current Pets & Tasks")
 if not owner.pets:
     st.info("No pets yet. Add one above.")
-for pet in owner.pets:
-    st.markdown(f"**{pet.header()}**")
-    if pet.tasks:
+else:
+    scheduler = Scheduler(owner)
+
+    # Filter controls -> Scheduler.filter_tasks(); "All" maps to None.
+    col_pet, col_status = st.columns(2)
+    with col_pet:
+        pet_choice = st.selectbox(
+            "Filter by pet", ["All pets"] + [p.name for p in owner.pets]
+        )
+    with col_status:
+        status_choice = st.selectbox(
+            "Filter by status", ["All", "To do", "Completed"]
+        )
+
+    pet_filter = None if pet_choice == "All pets" else pet_choice
+    completed_filter = (
+        None if status_choice == "All" else (status_choice == "Completed")
+    )
+
+    # Ask the Scheduler for the filtered set, then sort it by preferred time.
+    tasks = scheduler.filter_tasks(completed=completed_filter, pet_name=pet_filter)
+    tasks = scheduler.sort_by_time(tasks)
+
+    if tasks:
         st.table(
             [
                 {
+                    "Time": t.time or "—",
+                    "Pet": t.pet.name if t.pet else "—",
                     "Task": t.description,
                     "Duration (min)": t.duration_minutes,
                     "Frequency": t.frequency,
-                    "Done": t.completed,
+                    "Status": "✅ Done" if t.completed else "⏳ To do",
                 }
-                for t in pet.tasks
+                for t in tasks
             ]
         )
+        st.caption(f"Showing {len(tasks)} task(s), sorted by preferred time.")
     else:
-        st.caption("No tasks yet.")
+        st.info("No tasks match these filters.")
 
 st.divider()
 
 # --- Build schedule ---------------------------------------------------------
-# Scheduler reads the persisted owner and produces the daily plan text.
+# Scheduler reads the persisted owner, warns about timing conflicts, and
+# produces a conflict-free daily plan.
 st.subheader("Build Schedule")
 if st.button("Generate schedule"):
     if not owner.pets:
         st.warning("Add a pet and some tasks first.")
     else:
         scheduler = Scheduler(owner)
-        st.code(scheduler.format_all_schedules())
+
+        # Surface preferred-time collisions BEFORE showing the plan, so the
+        # owner reads the caveat first. One warning per conflicting slot.
+        conflicts = scheduler.detect_conflicts()
+        if conflicts:
+            for warning in conflicts:
+                st.warning(warning)
+            st.info(
+                "These tasks share the same preferred time. The plan below "
+                "already spaces them out into separate slots — but you may "
+                "want to adjust their preferred times so the schedule matches "
+                "your routine."
+            )
+        else:
+            st.success("No timing conflicts — every task has a clear slot 🎉")
+
+        # Show the generated conflict-free plan, one table per pet.
+        plan = scheduler.build_schedule()
+        for pet in owner.pets:
+            st.markdown(f"**Daily plan for {pet.header()}**")
+            entries = plan[pet]
+            if entries:
+                st.table(
+                    [
+                        {
+                            "Time": time_str,
+                            "Task": task.description,
+                            "Duration (min)": task.duration_minutes,
+                        }
+                        for time_str, task in entries
+                    ]
+                )
+            else:
+                st.caption("No tasks scheduled.")

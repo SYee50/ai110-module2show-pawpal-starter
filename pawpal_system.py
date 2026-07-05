@@ -9,6 +9,7 @@ Implements the four classes from diagrams/uml.mmd:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 
 # Task recurrence options ("how often"). Stored for future filtering; the
 # scheduler currently plans every incomplete task once.
@@ -39,10 +40,39 @@ class Task:
     duration_minutes: int
     frequency: str = "daily"  # one of FREQUENCIES
     completed: bool = False
+    time: str | None = None  # scheduled/preferred time of day, "HH:MM"
+    due_date: "date | None" = None  # when the task is due (used for recurrence)
+    # Back-reference to the owning pet; set automatically by Pet.add_task().
+    pet: "Pet | None" = field(default=None, repr=False, compare=False)
 
-    def mark_complete(self) -> None:
-        """Mark this task as completed."""
+    def mark_complete(self) -> "Task | None":
+        """Mark complete; for daily/weekly tasks, spawn the next occurrence."""
         self.completed = True
+        next_task = self.next_occurrence()
+        if next_task is not None and self.pet is not None:
+            self.pet.add_task(next_task)
+        return next_task
+
+    def next_occurrence(self) -> "Task | None":
+        """Return a fresh Task for the next date, or None if it doesn't recur.
+
+        Only "daily" (+1 day) and "weekly" (+7 days) recur. The next date is
+        advanced from this task's due_date, or from today if none is set.
+        """
+        if self.frequency == "daily":
+            delta = timedelta(days=1)
+        elif self.frequency == "weekly":
+            delta = timedelta(weeks=1)
+        else:
+            return None
+        base = self.due_date or date.today()
+        return Task(
+            self.description,
+            self.duration_minutes,
+            frequency=self.frequency,
+            time=self.time,
+            due_date=base + delta,
+        )
 
     def __str__(self) -> str:
         """Render like: 'Morning walk (30 min)'."""
@@ -66,7 +96,8 @@ class Pet:
     tasks: list[Task] = field(default_factory=list)
 
     def add_task(self, task: Task) -> None:
-        """Add a task to this pet."""
+        """Add a task to this pet and record the pet on the task."""
+        task.pet = self
         self.tasks.append(task)
 
     def remove_task(self, description: str) -> bool:
@@ -141,6 +172,50 @@ class Scheduler:
     def __init__(self, owner: Owner) -> None:
         """Store the owner whose pets this scheduler plans."""
         self.owner = owner
+
+    def sort_by_time(self, tasks: list[Task]) -> list[Task]:
+        """Return tasks sorted by their 'HH:MM' time attribute (earliest first)."""
+        # Zero-padded "HH:MM" strings sort correctly as text; tasks with no
+        # time set (None) fall back to "99:99" so they land at the end.
+        return sorted(tasks, key=lambda task: task.time or "99:99")
+
+    def filter_tasks(
+        self, completed: bool | None = None, pet_name: str | None = None
+    ) -> list[Task]:
+        """Return the owner's tasks, optionally filtered by completion and/or pet name."""
+        result = []
+        for pet in self.owner.pets:
+            if pet_name is not None and pet.name != pet_name:
+                continue
+            for task in pet.tasks:
+                if completed is not None and task.completed != completed:
+                    continue
+                result.append(task)
+        return result
+
+    def detect_conflicts(self) -> list[str]:
+        """Return warning messages for tasks sharing the same time (never raises).
+
+        Lightweight check: two incomplete tasks -- for the same pet or different
+        pets -- that have the same "HH:MM" time are flagged. Tasks with no time
+        set are ignored. Returns an empty list when there are no conflicts.
+        """
+        by_time: dict[str, list[tuple[Pet, Task]]] = {}
+        for pet in self.owner.pets:
+            for task in pet.tasks:
+                if task.completed or task.time is None:
+                    continue
+                by_time.setdefault(task.time, []).append((pet, task))
+
+        warnings = []
+        for time_str in sorted(by_time):
+            entries = by_time[time_str]
+            if len(entries) > 1:
+                labels = ", ".join(
+                    f"{task.description} ({pet.name})" for pet, task in entries
+                )
+                warnings.append(f"⚠️  Conflict at {time_str}: {labels}")
+        return warnings
 
     def build_schedule(self) -> dict[Pet, list[tuple[str, Task]]]:
         """Build one conflict-free plan across all pets, round-robin and time-packed."""

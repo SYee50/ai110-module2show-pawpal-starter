@@ -5,6 +5,8 @@ adds Tasks out of order, then demonstrates the Scheduler's sorting and
 filtering methods in the terminal.
 """
 
+from __future__ import annotations
+
 from pawpal_system import Owner, Pet, Scheduler, Task
 
 

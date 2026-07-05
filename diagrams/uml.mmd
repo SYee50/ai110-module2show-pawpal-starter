@@ -4,50 +4,54 @@ classDiagram
 
     class Owner {
         +str name
+        +str start_time
+        +str end_time
         +list~Pet~ pets
-        +str day_start
-        +int available_minutes
-        +list~str~ priorities
         +add_pet(pet) void
-        +edit_pet(name, changes) void
-        +remove_pet(name) void
+        +remove_pet(name) bool
+        +find_pet(name) Pet
+        +available_minutes() int
         +get_all_tasks() list~Task~
     }
 
     class Pet {
         +str name
         +str species
-        +str owner_name
+        +str breed
+        +Owner owner
         +list~Task~ tasks
         +add_task(task) void
-        +edit_task(name, changes) void
-        +remove_task(name) void
+        +remove_task(description) bool
         +get_tasks() list~Task~
+        +header() str
     }
 
     class Task {
-        +str name
+        +str description
         +int duration_minutes
-        +str priority
-        +str recurrence
-        +str day_of_week
-        +str fixed_time
-        +priority_rank() int
-        +is_due_today(day) bool
+        +str frequency
+        +bool completed
+        +str time
+        +date due_date
+        +Pet pet
+        +mark_complete() Task
+        +next_occurrence() Task
         +__str__() str
     }
 
     class Scheduler {
         +Owner owner
-        +generate_schedule(day) dict
-        +sort_tasks(tasks) list~Task~
-        +filter_tasks(tasks, budget) list~Task~
-        +detect_conflicts(tasks) list
-        +expand_recurring(day) list~Task~
-        +assign_times(tasks, start) list
-        +format_plan(schedule) str
+        +sort_by_time(tasks) list~Task~
+        +filter_tasks(completed, pet_name) list~Task~
+        +detect_conflicts() list~str~
+        +build_schedule() dict
+        +get_pet_schedule(pet) list
+        +format_pet_schedule(pet) str
+        +format_all_schedules() str
     }
 
     Owner "1" *-- "many" Pet : has
     Pet "1" *-- "many" Task : has
+    Pet "many" --> "1" Owner : back-ref (owner)
+    Task "many" --> "1" Pet : back-ref (pet)
     Scheduler "1" --> "1" Owner : reads
